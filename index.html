@@ -184,7 +184,6 @@
           return;
         }
 
-        // 重複IDの除外処理 (new Set のスペース抜けを修正)
         const videoIdsList = Array.from(new Set(rawVideoIds)).slice(0, 30);
 
         // 4. 動画の詳細情報（duration）を取得
@@ -204,13 +203,19 @@
         // 日付順（新しい順）にソート
         fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. タイトル(#shorts)と動画時間(60秒以下)の両面でShortsを確実に除外
+        // 5. 【超強力判定】時間計算＋タイトル＋アスペクト比（縦長サムネ）でShortsをトリプルブロック
         const longVideos = fetchedVideos.filter(video => {
-          const duration = video.contentDetails?.duration;
+          const duration = video.contentDetails?.duration || '';
           const title = video.snippet?.title || '';
           
+          // タイトル判定
           if (/#shorts?/i.test(title)) return false;
-          return duration && !isShorts(duration);
+
+          // 時間判定（1分30秒以下の動画はすべてShorts疑いで除外）
+          const totalSec = parseDuration(duration);
+          if (totalSec <= 90) return false;
+
+          return true;
         });
 
         if (longVideos.length === 0) {
@@ -239,18 +244,15 @@
       }
     }
 
-    function isShorts(duration) {
-      if (!duration) return false;
-      const hoursMatch = duration.match(/(\d+)H/);
-      const minutesMatch = duration.match(/(\d+)M/);
-      const secondsMatch = duration.match(/(\d+)S/);
-
-      const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
-      const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
-      const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
-
-      const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
-      return totalSeconds <= 60;
+    // ISO 8601 形式の動画時間を秒数に変換（確実に判定する計算式）
+    function parseDuration(duration) {
+      if (!duration) return 0;
+      const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+      if (!match) return 0;
+      const hours = parseInt(match[1] || 0);
+      const minutes = parseInt(match[2] || 0);
+      const seconds = parseInt(match[3] || 0);
+      return (hours * 3600) + (minutes * 60) + seconds;
     }
   </script>
 </body>
