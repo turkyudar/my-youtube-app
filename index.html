@@ -58,7 +58,8 @@
       color: #ffffff;
     }
     .channel-name { font-size: 0.75rem; color: #aaa; }
-    /* アプリ内再生用プレイヤー枠（16:9比率） */
+    
+    /* 16:9の埋め込みプレイヤー枠 */
     .player-container {
       display: none;
       position: relative;
@@ -93,12 +94,12 @@
 
   <div id="login-section">
     <h1>My Clean YouTube</h1>
-    <p>Shortsのない、登録チャンネル専用プレイヤーです。</p>
+    <p>登録チャンネル専用の省誘惑プレイヤーです。</p>
     <button id="login-btn">Googleで安全にログイン</button>
   </div>
 
   <div id="app-section">
-    <h1>新着動画（Shorts除外）</h1>
+    <h1>新着動画一覧</h1>
     <div id="video-list">読み込み中...</div>
     <div id="debug-box" style="display:none;"></div>
     <br>
@@ -227,26 +228,19 @@
         // 日付順（新しい順）にソート
         fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. Shorts（60秒以下）とライブ配信中/配信予定枠を完全に除外
-        const longVideos = fetchedVideos.filter(video => {
-          const title = video.snippet?.title || '';
-          if (/#shorts?/i.test(title)) return false;
-
+        // 5. 配信予定枠などの未公開コンテンツのみ除外
+        const validVideos = fetchedVideos.filter(video => {
           const liveState = video.snippet?.liveBroadcastContent;
-          if (liveState && liveState !== 'none') return false;
-
-          const duration = video.contentDetails?.duration || '';
-          const totalSec = parseDuration(duration);
-          return totalSec > 60;
+          return !liveState || liveState === 'none' || liveState === 'live';
         });
 
-        if (longVideos.length === 0) {
-          videoListDiv.innerHTML = '表示できる通常動画（Shorts・配信予定除外）がありません。';
+        if (validVideos.length === 0) {
+          videoListDiv.innerHTML = '表示できる動画がありません。';
           return;
         }
 
-        // 外部リンクタグ（<a>）を排除し、クリックでアプリ内再生が開く仕様に統一
-        videoListDiv.innerHTML = longVideos.map(video => `
+        // 描画処理
+        videoListDiv.innerHTML = validVideos.map(video => `
           <div class="video-card">
             <div class="video-item-header" onclick="playVideo('${video.id}')">
               <img src="${video.snippet.thumbnails.medium?.url || video.snippet.thumbnails.default?.url}" alt="${video.snippet.title}">
@@ -265,31 +259,20 @@
       }
     }
 
-    // アプリ内で動画を直接開閉（YouTube公式へ跳ばない）
+    // アプリ内プレイヤー展開（youtube-nocookie ドメインを使用）
     function playVideo(videoId) {
       const container = document.getElementById(`player-${videoId}`);
       if (container.style.display === 'block') {
         container.style.display = 'none';
         container.innerHTML = '';
       } else {
-        // 他の動画が開いていれば一度閉じる
         document.querySelectorAll('.player-container').forEach(el => {
           el.style.display = 'none';
           el.innerHTML = '';
         });
         container.style.display = 'block';
-        container.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+        container.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
       }
-    }
-
-    function parseDuration(duration) {
-      if (!duration) return 0;
-      const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-      if (!match) return 0;
-      const hours = parseInt(match[1] || 0);
-      const minutes = parseInt(match[2] || 0);
-      const seconds = parseInt(match[3] || 0);
-      return (hours * 3600) + (minutes * 60) + seconds;
     }
   </script>
 </body>
