@@ -35,6 +35,9 @@
       align-items: center;
       cursor: pointer;
     }
+    .video-item-header:hover {
+      background-color: #2a2a2a;
+    }
     .video-item-header img {
       width: 120px;
       height: 68px;
@@ -52,9 +55,10 @@
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      color: #ffffff;
     }
     .channel-name { font-size: 0.75rem; color: #aaa; }
-    /* アプリ内再生用プレイヤー枠 */
+    /* アプリ内再生用プレイヤー枠（16:9比率） */
     .player-container {
       display: none;
       position: relative;
@@ -223,16 +227,14 @@
         // 日付順（新しい順）にソート
         fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. 【厳格フィルタ】Shorts（60秒以下）、ライブ中、配信予定枠（時間データがない/none以外）を完全に排除
+        // 5. Shorts（60秒以下）とライブ配信中/配信予定枠を完全に除外
         const longVideos = fetchedVideos.filter(video => {
           const title = video.snippet?.title || '';
           if (/#shorts?/i.test(title)) return false;
 
-          // 配信状況チェック（none＝普通の動画以外はすべて除外）
           const liveState = video.snippet?.liveBroadcastContent;
           if (liveState && liveState !== 'none') return false;
 
-          // 時間チェック（60秒以下のShortsは除外）
           const duration = video.contentDetails?.duration || '';
           const totalSec = parseDuration(duration);
           return totalSec > 60;
@@ -243,7 +245,7 @@
           return;
         }
 
-        // アプリ内再生に対応した描画
+        // 外部リンクタグ（<a>）を排除し、クリックでアプリ内再生が開く仕様に統一
         videoListDiv.innerHTML = longVideos.map(video => `
           <div class="video-card">
             <div class="video-item-header" onclick="playVideo('${video.id}')">
@@ -263,12 +265,14 @@
       }
     }
 
+    // アプリ内で動画を直接開閉（YouTube公式へ跳ばない）
     function playVideo(videoId) {
       const container = document.getElementById(`player-${videoId}`);
       if (container.style.display === 'block') {
         container.style.display = 'none';
         container.innerHTML = '';
       } else {
+        // 他の動画が開いていれば一度閉じる
         document.querySelectorAll('.player-container').forEach(el => {
           el.style.display = 'none';
           el.innerHTML = '';
