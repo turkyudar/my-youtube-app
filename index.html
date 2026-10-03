@@ -22,7 +22,7 @@
       font-weight: bold;
       cursor: pointer;
     }
-    /* 見やすいコンパクトなリストUIに変更 */
+    /* コンパクトなリストUI */
     .video-card {
       display: flex;
       gap: 12px;
@@ -148,7 +148,7 @@
           return;
         }
 
-        // 2. アップロード動画の再生リストIDを取得
+        // 2. アップロード動画再生リストIDを取得
         const chRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelIds.join(',')}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -162,7 +162,7 @@
 
         const playlistIds = (chData.items || []).map(ch => ch.contentDetails?.relatedPlaylists?.uploads).filter(Boolean);
 
-        // 3. 各リストから動画を取得
+        // 3. 動画を取得
         const playlistPromises = playlistIds.map(plId =>
           fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${plId}&maxResults=2`, {
             headers: { Authorization: `Bearer ${token}` }
@@ -182,13 +182,13 @@
           return;
         }
 
-        // 日付順（新しい順）に並び替え
+        // 日付順ソート
         videoItems.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
         const topVideoItems = videoItems.slice(0, 20);
         const videoIds = topVideoItems.map(item => item.contentDetails.videoId).join(',');
 
-        // 4. 動画詳細（長さ判定）を取得
+        // 4. 動画詳細（Shorts判定用）を取得
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -211,7 +211,7 @@
           return;
         }
 
-        // コンパクトなリストとして画面描画
+        // 画面描画
         videoListDiv.innerHTML = longVideos.map(video => `
           <div class="video-card">
             <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">
@@ -232,7 +232,6 @@
       }
     }
 
-    // 時間・分・秒を正確に判定する関数
     function isShorts(duration) {
       if (!duration) return false;
       const hoursMatch = duration.match(/(\d+)H/);
@@ -244,8 +243,6 @@
       const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
 
       const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
-      
-      // 61秒以下はShortsと判定して除外
       return totalSeconds <= 61;
     }
   </script>
