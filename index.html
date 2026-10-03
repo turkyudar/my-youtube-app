@@ -110,8 +110,8 @@
     async function loadSubscribedVideos(token) {
       const videoListDiv = document.getElementById('video-list');
       try {
-        // 1. 登録チャンネルの一覧（最大20件）を取得 (消費: 1pt)
-        const subRes = await fetch('https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=20', {
+        // 1. 登録チャンネル一覧を取得 (消費: 1pt)
+        const subRes = await fetch('https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=15', {
           headers: { Authorization: `Bearer ${token}` }
         });
         const subData = await subRes.json();
@@ -125,24 +125,36 @@
         const channelIds = (subData.items || []).map(item => item.snippet.resourceId.channelId);
 
         if (channelIds.length === 0) {
-          videoListDiv.innerHTML = '登録しているチャンネルが見つかりませんでした。';
+          videoListDiv.innerHTML = '登録チャンネルが見つかりませんでした。';
           return;
         }
 
-        // 2. 各チャンネルの最新アクティビティを取得 (消費: チャンネル数×1pt = 最大20pt)
-        const activityPromises = channelIds.map(id =>
-          fetch(`https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&channelId=${id}&maxResults=2`, {
+        // 2. チャンネルの詳細から「アップロード動画再生リストID」を取得 (消費: 1pt)
+        const chRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelIds.join(',')}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const chData = await chRes.json();
+
+        if (chData.error) {
+          showError('APIエラー[channels]: ' + JSON.stringify(chData.error, null, 2));
+          videoListDiv.innerHTML = 'チャンネル詳細の取得に失敗しました。';
+          return;
+        }
+
+        const playlistIds = (chData.items || []).map(ch => ch.contentDetails?.relatedPlaylists?.uploads).filter(Boolean);
+
+        // 3. 各再生リストの最新動画を取得 (消費: チャンネル数 × 1pt = 約15pt)
+        const playlistPromises = playlistIds.map(plId =>
+          fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${plId}&maxResults=2`, {
             headers: { Authorization: `Bearer ${token}` }
           }).then(r => r.json())
         );
-        const activityResults = await Promise.all(activityPromises);
+        const playlistResults = await Promise.all(playlistPromises);
 
-        // 動画アップロードイベントのみ抽出
         let videoItems = [];
-        activityResults.forEach(data => {
+        playlistResults.forEach(data => {
           if (data.items) {
-            const uploads = data.items.filter(item => item.snippet?.type === 'upload' && item.contentDetails?.upload?.videoId);
-            videoItems.push(...uploads);
+            videoItems.push(...data.items);
           }
         });
 
@@ -151,14 +163,13 @@
           return;
         }
 
-        // 日付順（新しい順）に並び替え
+        // 日付順（新しい順）にソート
         videoItems.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
-        
-        // 動画一覧から先頭20件分のIDを抽出
-        const topVideoItems = videoItems.slice(0, 20);
-        const videoIds = topVideoItems.map(item => item.contentDetails.upload.videoId).join(',');
 
-        // 3. 動画の長さ（Shorts判定用）を取得 (消費: 1pt)
+        const topVideoItems = videoItems.slice(0, 20);
+        const videoIds = topVideoItems.map(item => item.contentDetails.videoId).join(',');
+
+        // 4. 動画の長さ（Shorts判定）を取得 (消費: 1pt)
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
