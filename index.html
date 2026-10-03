@@ -1,1 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Clean YouTube</title>
+  <!-- PWA（スマホアプリ化）の設定 -->
+  <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22MyYouTube%22,%22short_name%22:%22MyYouTube%22,%22start_url%22:%22./%22,%22display%22:%22standalone%22,%22background_color%22:%22#121212%22,%22theme_color%22:%22#121212%22}">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+      margin: 0;
+      padding: 16px;
+    }
+    h1 { font-size: 1.2rem; margin-bottom: 16px; }
+    button {
+      background-color: #cc0000;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 20px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .video-card {
+      background-color: #1e1e1e;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .video-card img { width: 100%; display: block; }
+    .video-info { padding: 12px; }
+    .video-title { font-size: 0.95rem; font-weight: bold; margin-bottom: 6px; }
+    .channel-name { font-size: 0.8rem; color: #aaa; }
+    #login-section, #app-section { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. 未ログイン状態の画面 -->
+  <div id="login-section">
+    <h1>My Clean YouTube</h1>
+    <p>Shortsのない、登録チャンネル専用プレイヤーです。</p>
+    <button id="login-btn">Googleで安全にログイン</button>
+  </div>
+
+  <!-- 2. ログイン完了後の画面 -->
+  <div id="app-section">
+    <h1>新着動画（Shorts除外）</h1>
+    <div id="video-list">読み込み中...</div>
+    <br>
+    <button id="logout-btn" style="background-color: #444;">ログアウト</button>
+  </div>
+
+  <script>
+    // ※安全設計: ログイン情報の通行証（トークン）はiPhoneのローカルのみに保存されます
+    const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // 後でGoogle Developer Consoleで取得するIDを入れる場所
+
+    // 画面読み込み時の処理
+    window.onload = () => {
+      const token = localStorage.getItem('yt_access_token');
+      if (token) {
+        // すでに通行証（トークン）がiPhone内にある場合は自動ログイン
+        showAppSection();
+        loadSubscribedVideos(token);
+      } else {
+        // トークンがない場合はログイン画面を表示
+        document.getElementById('login-section').style.display = 'block';
+      }
+    };
+
+    // Googleログイン処理（OAuth 2.0）
+    document.getElementById('login-btn').onclick = () => {
+      // 本来はここでGoogleの認証画面へ飛ぶ
+      alert("※実際にYouTubeの登録チャンネルを取得するには、Googleの無料『Client ID』の設定が必要です。まずはアプリの画面表示テストをお試しください！");
+    };
+
+    // ログアウト処理
+    document.getElementById('logout-btn').onclick = () => {
+      localStorage.removeItem('yt_access_token');
+      location.reload();
+    };
+
+    function showAppSection() {
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('app-section').style.display = 'block';
+    }
+
+    // 登録チャンネルの動画を取得してShortsを弾く処理
+    async function loadSubscribedVideos(token) {
+      // YouTube APIを叩いて動画一覧を取得し、
+      // 動画の長さが「1分未満（Shorts）」のものを自動で排除（filter）して画面描画する処理をここに記述します
+    }
+  </script>
+</body>
+</html>
 
