@@ -110,29 +110,55 @@
     async function loadSubscribedVideos(token) {
       const videoListDiv = document.getElementById('video-list');
       try {
-        // 1. 登録チャンネルのフィード（アクティビティ）を取得（わずか1クォータで取得可能）
-        const res = await fetch('https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&home=true&maxResults=20', {
+        // 1. 登録チャンネルの一覧（最大20件）を取得 (消費: 1pt)
+        const subRes = await fetch('https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=20', {
           headers: { Authorization: `Bearer ${token}` }
         });
-        const data = await res.json();
+        const subData = await subRes.json();
 
-        if (data.error) {
-          showError('APIエラー[activities]: ' + JSON.stringify(data.error, null, 2));
-          videoListDiv.innerHTML = 'アクティビティの取得に失敗しました。';
+        if (subData.error) {
+          showError('APIエラー[subscriptions]: ' + JSON.stringify(subData.error, null, 2));
+          videoListDiv.innerHTML = '登録チャンネルの取得に失敗しました。';
           return;
         }
 
+        const channelIds = (subData.items || []).map(item => item.snippet.resourceId.channelId);
+
+        if (channelIds.length === 0) {
+          videoListDiv.innerHTML = '登録しているチャンネルが見つかりませんでした。';
+          return;
+        }
+
+        // 2. 各チャンネルの最新アクティビティを取得 (消費: チャンネル数×1pt = 最大20pt)
+        const activityPromises = channelIds.map(id =>
+          fetch(`https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&channelId=${id}&maxResults=2`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).then(r => r.json())
+        );
+        const activityResults = await Promise.all(activityPromises);
+
         // 動画アップロードイベントのみ抽出
-        const videoItems = (data.items || []).filter(item => item.snippet?.type === 'upload' && item.contentDetails?.upload?.videoId);
+        let videoItems = [];
+        activityResults.forEach(data => {
+          if (data.items) {
+            const uploads = data.items.filter(item => item.snippet?.type === 'upload' && item.contentDetails?.upload?.videoId);
+            videoItems.push(...uploads);
+          }
+        });
 
         if (videoItems.length === 0) {
           videoListDiv.innerHTML = '新着動画が見つかりませんでした。';
           return;
         }
 
-        const videoIds = videoItems.map(item => item.contentDetails.upload.videoId).join(',');
+        // 日付順（新しい順）に並び替え
+        videoItems.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
+        
+        // 動画一覧から先頭20件分のIDを抽出
+        const topVideoItems = videoItems.slice(0, 20);
+        const videoIds = topVideoItems.map(item => item.contentDetails.upload.videoId).join(',');
 
-        // 2. 動画の長さ（Shorts判定用）を取得（わずか1クォータ）
+        // 3. 動画の長さ（Shorts判定用）を取得 (消費: 1pt)
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -155,6 +181,7 @@
           return;
         }
 
+        // 画面描画
         videoListDiv.innerHTML = longVideos.map(video => `
           <div class="video-card">
             <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">
