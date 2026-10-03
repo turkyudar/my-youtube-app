@@ -22,7 +22,6 @@
       font-weight: bold;
       cursor: pointer;
     }
-    /* コンパクトなリストUI */
     .video-card {
       display: flex;
       gap: 12px;
@@ -162,34 +161,34 @@
 
         const playlistIds = (chData.items || []).map(ch => ch.contentDetails?.relatedPlaylists?.uploads).filter(Boolean);
 
-        // 3. 動画を取得
+        // 3. 再生リストから最新動画を取得
         const playlistPromises = playlistIds.map(plId =>
-          fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${plId}&maxResults=2`, {
+          fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails,snippet&playlistId=${plId}&maxResults=3`, {
             headers: { Authorization: `Bearer ${token}` }
           }).then(r => r.json())
         );
         const playlistResults = await Promise.all(playlistPromises);
 
-        let videoItems = [];
+        let videoIdsList = [];
         playlistResults.forEach(data => {
           if (data.items) {
-            videoItems.push(...data.items);
+            data.items.forEach(item => {
+              const vId = item.contentDetails?.videoId;
+              if (vId) videoIdsList.push(vId);
+            });
           }
         });
 
-        if (videoItems.length === 0) {
+        if (videoIdsList.length === 0) {
           videoListDiv.innerHTML = '新着動画が見つかりませんでした。';
           return;
         }
 
-        // 日付順ソート
-        videoItems.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
+        // 重複IDを除外
+        videoIdsList = [...newSet(videoIdsList)].slice(0, 30);
 
-        const topVideoItems = videoItems.slice(0, 20);
-        const videoIds = topVideoItems.map(item => item.contentDetails.videoId).join(',');
-
-        // 4. 動画詳細（Shorts判定用）を取得
-        const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
+        // 4. 動画の詳細情報（ここで確定した時間データ duration を取得）
+        const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIdsList.join(',')}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const detailsData = await detailsRes.json();
@@ -200,9 +199,20 @@
           return;
         }
 
-        // Shorts（61秒以下）を確実に除外
-        const longVideos = (detailsData.items || []).filter(video => {
+        let fetchedVideos = detailsData.items || [];
+
+        // 日付順（新しい順）にソート
+        fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
+
+        // 5. 【強力ブロック】60秒以下 AND タイトルに #shorts を含む動画を完全に除外
+        const longVideos = fetchedVideos.filter(video => {
           const duration = video.contentDetails?.duration;
+          const title = video.snippet?.title || '';
+          
+          // タイトル判定（#shorts があれば即除外）
+          if (/#shorts?/i.test(title)) return false;
+          
+          // 時間判定（60秒以下なら除外）
           return duration && !isShorts(duration);
         });
 
@@ -243,7 +253,9 @@
       const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
 
       const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
-      return totalSeconds <= 61;
+      
+      // 60秒以下はShortsと判定
+      return totalSeconds <= 60;
     }
   </script>
 </body>
