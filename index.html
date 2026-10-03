@@ -169,25 +169,25 @@
         );
         const playlistResults = await Promise.all(playlistPromises);
 
-        let videoIdsList = [];
+        let rawVideoIds = [];
         playlistResults.forEach(data => {
           if (data.items) {
             data.items.forEach(item => {
               const vId = item.contentDetails?.videoId;
-              if (vId) videoIdsList.push(vId);
+              if (vId) rawVideoIds.push(vId);
             });
           }
         });
 
-        if (videoIdsList.length === 0) {
+        if (rawVideoIds.length === 0) {
           videoListDiv.innerHTML = '新着動画が見つかりませんでした。';
           return;
         }
 
-        // 重複IDを除外
-        videoIdsList = [...newSet(videoIdsList)].slice(0, 30);
+        // 重複IDの除外処理（文法修正箇所）
+        const videoIdsList = Array.from(new Set(rawVideoIds)).slice(0, 30);
 
-        // 4. 動画の詳細情報（ここで確定した時間データ duration を取得）
+        // 4. 動画の詳細情報（duration）を取得
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIdsList.join(',')}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -204,15 +204,12 @@
         // 日付順（新しい順）にソート
         fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. 【強力ブロック】60秒以下 AND タイトルに #shorts を含む動画を完全に除外
+        // 5. タイトル(#shorts)と動画時間(60秒以下)の両面でShortsを確実に除外
         const longVideos = fetchedVideos.filter(video => {
           const duration = video.contentDetails?.duration;
           const title = video.snippet?.title || '';
           
-          // タイトル判定（#shorts があれば即除外）
           if (/#shorts?/i.test(title)) return false;
-          
-          // 時間判定（60秒以下なら除外）
           return duration && !isShorts(duration);
         });
 
@@ -253,8 +250,6 @@
       const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
 
       const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
-      
-      // 60秒以下はShortsと判定
       return totalSeconds <= 60;
     }
   </script>
