@@ -10,29 +10,48 @@
       background-color: #121212;
       color: #ffffff;
       margin: 0;
-      padding: 16px;
+      padding: 12px;
     }
-    h1 { font-size: 1.2rem; margin-bottom: 16px; }
+    h1 { font-size: 1.1rem; margin-bottom: 12px; }
     button {
       background-color: #cc0000;
       color: white;
       border: none;
-      padding: 12px 20px;
+      padding: 10px 16px;
       border-radius: 20px;
       font-weight: bold;
       cursor: pointer;
     }
+    /* 見やすいコンパクトなリストUIに変更 */
     .video-card {
+      display: flex;
+      gap: 12px;
       background-color: #1e1e1e;
       border-radius: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
+      padding: 8px;
+      align-items: center;
+    }
+    .video-card img {
+      width: 120px;
+      height: 68px;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    .video-info { flex: 1; overflow: hidden; }
+    .video-title {
+      font-size: 0.85rem;
+      font-weight: bold;
+      margin-bottom: 4px;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
     }
-    .video-card img { width: 100%; display: block; }
-    .video-info { padding: 12px; }
-    .video-title { font-size: 0.95rem; font-weight: bold; margin-bottom: 6px; }
     .video-title a { color: #ffffff; text-decoration: none; }
-    .channel-name { font-size: 0.8rem; color: #aaa; }
+    .channel-name { font-size: 0.75rem; color: #aaa; }
     #login-section, #app-section { display: none; }
     #debug-box {
       background: #333;
@@ -110,7 +129,7 @@
     async function loadSubscribedVideos(token) {
       const videoListDiv = document.getElementById('video-list');
       try {
-        // 1. 登録チャンネル一覧を取得 (消費: 1pt)
+        // 1. 登録チャンネル一覧を取得
         const subRes = await fetch('https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=15', {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -129,7 +148,7 @@
           return;
         }
 
-        // 2. チャンネルの詳細から「アップロード動画再生リストID」を取得 (消費: 1pt)
+        // 2. アップロード動画の再生リストIDを取得
         const chRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelIds.join(',')}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -143,7 +162,7 @@
 
         const playlistIds = (chData.items || []).map(ch => ch.contentDetails?.relatedPlaylists?.uploads).filter(Boolean);
 
-        // 3. 各再生リストの最新動画を取得 (消費: チャンネル数 × 1pt = 約15pt)
+        // 3. 各リストから動画を取得
         const playlistPromises = playlistIds.map(plId =>
           fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${plId}&maxResults=2`, {
             headers: { Authorization: `Bearer ${token}` }
@@ -163,13 +182,13 @@
           return;
         }
 
-        // 日付順（新しい順）にソート
+        // 日付順（新しい順）に並び替え
         videoItems.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
         const topVideoItems = videoItems.slice(0, 20);
         const videoIds = topVideoItems.map(item => item.contentDetails.videoId).join(',');
 
-        // 4. 動画の長さ（Shorts判定）を取得 (消費: 1pt)
+        // 4. 動画詳細（長さ判定）を取得
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -181,7 +200,7 @@
           return;
         }
 
-        // Shorts（60秒以下）を除外
+        // Shorts（61秒以下）を確実に除外
         const longVideos = (detailsData.items || []).filter(video => {
           const duration = video.contentDetails?.duration;
           return duration && !isShorts(duration);
@@ -192,11 +211,11 @@
           return;
         }
 
-        // 画面描画
+        // コンパクトなリストとして画面描画
         videoListDiv.innerHTML = longVideos.map(video => `
           <div class="video-card">
             <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">
-              <img src="${video.snippet.thumbnails.medium.url}" alt="${video.snippet.title}">
+              <img src="${video.snippet.thumbnails.medium?.url || video.snippet.thumbnails.default?.url}" alt="${video.snippet.title}">
             </a>
             <div class="video-info">
               <div class="video-title">
@@ -213,13 +232,21 @@
       }
     }
 
+    // 時間・分・秒を正確に判定する関数
     function isShorts(duration) {
       if (!duration) return false;
-      const match = duration.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
-      if (!match) return false;
-      const minutes = parseInt(match[1] || 0);
-      const seconds = parseInt(match[2] || 0);
-      return (minutes * 60 + seconds) <= 60;
+      const hoursMatch = duration.match(/(\d+)H/);
+      const minutesMatch = duration.match(/(\d+)M/);
+      const secondsMatch = duration.match(/(\d+)S/);
+
+      const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+      const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
+      const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
+
+      const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
+      
+      // 61秒以下はShortsと判定して除外
+      return totalSeconds <= 61;
     }
   </script>
 </body>
