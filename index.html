@@ -203,20 +203,14 @@
         // 日付順（新しい順）にソート
         fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. 【超強力判定】時間計算＋タイトル＋アスペクト比（縦長サムネ）でShortsをトリプルブロック
-        const longVideos = fetchedVideos.filter(video => {
-          const duration = video.contentDetails?.duration || '';
-          const title = video.snippet?.title || '';
-          
-          // タイトル判定
-          if (/#shorts?/i.test(title)) return false;
-
-          // 時間判定（1分30秒以下の動画はすべてShorts疑いで除外）
-          const totalSec = parseDuration(duration);
-          if (totalSec <= 90) return false;
-
-          return true;
+        // 5. 【完全確実】Shorts判定：URLへの直接問い合わせ ＋ 動画尺チェック
+        const checkShortsPromises = fetchedVideos.map(async (video) => {
+          const isShort = await checkIsShortsVideo(video);
+          return isShort ? null : video;
         });
+
+        const checkedResults = await Promise.all(checkShortsPromises);
+        const longVideos = checkedResults.filter(Boolean);
 
         if (longVideos.length === 0) {
           videoListDiv.innerHTML = '表示できる通常動画（Shorts以外）がありません。';
@@ -244,7 +238,28 @@
       }
     }
 
-    // ISO 8601 形式の動画時間を秒数に変換（確実に判定する計算式）
+    // 動画がShortsかどうかを二重検証する関数
+    async function checkIsShortsVideo(video) {
+      const title = video.snippet?.title || '';
+      if (/#shorts?/i.test(title)) return true;
+
+      const duration = video.contentDetails?.duration || '';
+      const totalSec = parseDuration(duration);
+      
+      // 明らかに120秒（2分）以下のものはShortsの疑いが極めて高いため弾く
+      if (totalSec > 0 && totalSec <= 120) return true;
+
+      // URL直接リダイレクト検証
+      try {
+        const res = await fetch(`https://www.youtube.com/shorts/${video.id}`, { method: 'HEAD' });
+        if (res.redirected) return true;
+      } catch (e) {
+        // 通信エラー時は安全のため時間判定に倒す
+      }
+
+      return false;
+    }
+
     function parseDuration(duration) {
       if (!duration) return 0;
       const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
