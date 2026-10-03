@@ -23,15 +23,19 @@
       cursor: pointer;
     }
     .video-card {
-      display: flex;
-      gap: 12px;
       background-color: #1e1e1e;
       border-radius: 8px;
       margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .video-item-header {
+      display: flex;
+      gap: 12px;
       padding: 8px;
       align-items: center;
+      cursor: pointer;
     }
-    .video-card img {
+    .video-item-header img {
       width: 120px;
       height: 68px;
       object-fit: cover;
@@ -49,8 +53,24 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
-    .video-title a { color: #ffffff; text-decoration: none; }
     .channel-name { font-size: 0.75rem; color: #aaa; }
+    /* アプリ内再生用プレイヤー枠 */
+    .player-container {
+      display: none;
+      position: relative;
+      padding-bottom: 56.25%;
+      height: 0;
+      overflow: hidden;
+      background: #000;
+    }
+    .player-container iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
     #login-section, #app-section { display: none; }
     #debug-box {
       background: #333;
@@ -186,7 +206,7 @@
 
         const videoIdsList = Array.from(new Set(rawVideoIds)).slice(0, 30);
 
-        // 4. 動画の詳細情報（duration）を取得
+        // 4. 動画の詳細情報を取得
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIdsList.join(',')}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -203,32 +223,37 @@
         // 日付順（新しい順）にソート
         fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. 【完全確実】Shorts判定：URLへの直接問い合わせ ＋ 動画尺チェック
-        const checkShortsPromises = fetchedVideos.map(async (video) => {
-          const isShort = await checkIsShortsVideo(video);
-          return isShort ? null : video;
+        // 5. 【厳格フィルタ】Shorts（60秒以下）、ライブ中、配信予定枠（時間データがない/none以外）を完全に排除
+        const longVideos = fetchedVideos.filter(video => {
+          const title = video.snippet?.title || '';
+          if (/#shorts?/i.test(title)) return false;
+
+          // 配信状況チェック（none＝普通の動画以外はすべて除外）
+          const liveState = video.snippet?.liveBroadcastContent;
+          if (liveState && liveState !== 'none') return false;
+
+          // 時間チェック（60秒以下のShortsは除外）
+          const duration = video.contentDetails?.duration || '';
+          const totalSec = parseDuration(duration);
+          return totalSec > 60;
         });
 
-        const checkedResults = await Promise.all(checkShortsPromises);
-        const longVideos = checkedResults.filter(Boolean);
-
         if (longVideos.length === 0) {
-          videoListDiv.innerHTML = '表示できる通常動画（Shorts以外）がありません。';
+          videoListDiv.innerHTML = '表示できる通常動画（Shorts・配信予定除外）がありません。';
           return;
         }
 
-        // 画面描画
+        // アプリ内再生に対応した描画
         videoListDiv.innerHTML = longVideos.map(video => `
           <div class="video-card">
-            <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">
+            <div class="video-item-header" onclick="playVideo('${video.id}')">
               <img src="${video.snippet.thumbnails.medium?.url || video.snippet.thumbnails.default?.url}" alt="${video.snippet.title}">
-            </a>
-            <div class="video-info">
-              <div class="video-title">
-                <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">${video.snippet.title}</a>
+              <div class="video-info">
+                <div class="video-title">${video.snippet.title}</div>
+                <div class="channel-name">${video.snippet.channelTitle}</div>
               </div>
-              <div class="channel-name">${video.snippet.channelTitle}</div>
             </div>
+            <div id="player-${video.id}" class="player-container"></div>
           </div>
         `).join('');
 
@@ -238,26 +263,19 @@
       }
     }
 
-    // 動画がShortsかどうかを二重検証する関数
-    async function checkIsShortsVideo(video) {
-      const title = video.snippet?.title || '';
-      if (/#shorts?/i.test(title)) return true;
-
-      const duration = video.contentDetails?.duration || '';
-      const totalSec = parseDuration(duration);
-      
-      // 明らかに120秒（2分）以下のものはShortsの疑いが極めて高いため弾く
-      if (totalSec > 0 && totalSec <= 120) return true;
-
-      // URL直接リダイレクト検証
-      try {
-        const res = await fetch(`https://www.youtube.com/shorts/${video.id}`, { method: 'HEAD' });
-        if (res.redirected) return true;
-      } catch (e) {
-        // 通信エラー時は安全のため時間判定に倒す
+    function playVideo(videoId) {
+      const container = document.getElementById(`player-${videoId}`);
+      if (container.style.display === 'block') {
+        container.style.display = 'none';
+        container.innerHTML = '';
+      } else {
+        document.querySelectorAll('.player-container').forEach(el => {
+          el.style.display = 'none';
+          el.innerHTML = '';
+        });
+        container.style.display = 'block';
+        container.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
       }
-
-      return false;
     }
 
     function parseDuration(duration) {
