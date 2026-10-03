@@ -184,7 +184,7 @@
           return;
         }
 
-        // 重複IDの除外処理（文法修正箇所）
+        // 重複IDの除外処理 (new Set のスペース抜けを修正)
         const videoIdsList = Array.from(new Set(rawVideoIds)).slice(0, 30);
 
         // 4. 動画の詳細情報（duration）を取得
