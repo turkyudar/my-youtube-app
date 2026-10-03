@@ -59,7 +59,7 @@
     }
     .channel-name { font-size: 0.75rem; color: #aaa; }
     
-    /* 16:9の埋め込みプレイヤー枠 */
+    /* アプリ内プレイヤー枠（16:9） */
     .player-container {
       display: none;
       position: relative;
@@ -94,7 +94,7 @@
 
   <div id="login-section">
     <h1>My Clean YouTube</h1>
-    <p>登録チャンネル専用の省誘惑プレイヤーです。</p>
+    <p>登録チャンネル専用プレイヤーです。</p>
     <button id="login-btn">Googleで安全にログイン</button>
   </div>
 
@@ -194,64 +194,56 @@
         );
         const playlistResults = await Promise.all(playlistPromises);
 
-        let rawVideoIds = [];
+        let rawVideoItems = [];
         playlistResults.forEach(data => {
           if (data.items) {
             data.items.forEach(item => {
-              const vId = item.contentDetails?.videoId;
-              if (vId) rawVideoIds.push(vId);
+              if (item.contentDetails?.videoId) {
+                rawVideoItems.push(item);
+              }
             });
           }
         });
 
-        if (rawVideoIds.length === 0) {
+        if (rawVideoItems.length === 0) {
           videoListDiv.innerHTML = '新着動画が見つかりませんでした。';
           return;
         }
 
-        const videoIdsList = Array.from(new Set(rawVideoIds)).slice(0, 30);
-
-        // 4. 動画の詳細情報を取得
-        const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIdsList.join(',')}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const detailsData = await detailsRes.json();
-
-        if (detailsData.error) {
-          showError('APIエラー[videos]: ' + JSON.stringify(detailsData.error, null, 2));
-          videoListDiv.innerHTML = '動画詳細の取得に失敗しました。';
-          return;
-        }
-
-        let fetchedVideos = detailsData.items || [];
-
         // 日付順（新しい順）にソート
-        fetchedVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
+        rawVideoItems.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // 5. 配信予定枠などの未公開コンテンツのみ除外
-        const validVideos = fetchedVideos.filter(video => {
-          const liveState = video.snippet?.liveBroadcastContent;
-          return !liveState || liveState === 'none' || liveState === 'live';
-        });
-
-        if (validVideos.length === 0) {
-          videoListDiv.innerHTML = '表示できる動画がありません。';
-          return;
+        // 重複を除外して上位25件を取得
+        const uniqueVideos = [];
+        const seenIds = new Set();
+        for (const item of rawVideoItems) {
+          const vId = item.contentDetails.videoId;
+          if (!seenIds.has(vId)) {
+            seenIds.add(vId);
+            uniqueVideos.push(item);
+          }
+          if (uniqueVideos.length >= 25) break;
         }
 
-        // 描画処理
-        videoListDiv.innerHTML = validVideos.map(video => `
-          <div class="video-card">
-            <div class="video-item-header" onclick="playVideo('${video.id}')">
-              <img src="${video.snippet.thumbnails.medium?.url || video.snippet.thumbnails.default?.url}" alt="${video.snippet.title}">
-              <div class="video-info">
-                <div class="video-title">${video.snippet.title}</div>
-                <div class="channel-name">${video.snippet.channelTitle}</div>
+        // 複雑な条件判定を排除し、登録チャンネルの新着をそのまま綺麗に一覧化
+        videoListDiv.innerHTML = uniqueVideos.map(item => {
+          const vId = item.contentDetails.videoId;
+          const snippet = item.snippet;
+          const thumbUrl = snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url;
+          
+          return `
+            <div class="video-card">
+              <div class="video-item-header" onclick="playVideo('${vId}')">
+                <img src="${thumbUrl}" alt="${snippet.title}">
+                <div class="video-info">
+                  <div class="video-title">${snippet.title}</div>
+                  <div class="channel-name">${snippet.channelTitle}</div>
+                </div>
               </div>
+              <div id="player-${vId}" class="player-container"></div>
             </div>
-            <div id="player-${video.id}" class="player-container"></div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
 
       } catch (err) {
         showError('通信・JSエラー: ' + err.message);
@@ -259,7 +251,7 @@
       }
     }
 
-    // アプリ内プレイヤー展開（youtube-nocookie ドメインを使用）
+    // アプリ内プレイヤー展開（外部やTikTok型画面に飛ばない）
     function playVideo(videoId) {
       const container = document.getElementById(`player-${videoId}`);
       if (container.style.display === 'block') {
