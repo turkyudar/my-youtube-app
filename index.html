@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Clean YouTube</title>
-  <!-- PWA（スマホアプリ化）の設定 -->
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -32,6 +31,7 @@
     .video-card img { width: 100%; display: block; }
     .video-info { padding: 12px; }
     .video-title { font-size: 0.95rem; font-weight: bold; margin-bottom: 6px; }
+    .video-title a { color: #ffffff; text-decoration: none; }
     .channel-name { font-size: 0.8rem; color: #aaa; }
     #login-section, #app-section { display: none; }
   </style>
@@ -54,26 +54,35 @@
   </div>
 
   <script>
-    // ※安全設計: ログイン情報の通行証（トークン）はiPhoneのローカルのみに保存されます
-    const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // 後でGoogle Developer Consoleで取得するIDを入れる場所
+    const CLIENT_ID = '646094903557-65ut9st2226pkc2gcme8m7hd18ssg1jn.apps.googleusercontent.com';
+    const REDIRECT_URI = 'https://turkyudar.github.io/my-youtube-app/';
+    const SCOPE = 'https://www.googleapis.com/auth/youtube.readonly';
 
-    // 画面読み込み時の処理
+    // 画面読み込み時の処理（URLのハッシュからトークンを取得）
     window.onload = () => {
-      const token = localStorage.getItem('yt_access_token');
+      let token = localStorage.getItem('yt_access_token');
+
+      // OAuthリダイレクト後のURLからaccess_tokenを抽出
+      const hash = window.location.hash;
+      if (hash.includes('access_token=')) {
+        const params = new URLSearchParams(hash.substring(1));
+        token = params.get('access_token');
+        localStorage.setItem('yt_access_token', token);
+        window.location.hash = ''; // URLをキレイにする
+      }
+
       if (token) {
-        // すでに通行証（トークン）がiPhone内にある場合は自動ログイン
         showAppSection();
         loadSubscribedVideos(token);
       } else {
-        // トークンがない場合はログイン画面を表示
         document.getElementById('login-section').style.display = 'block';
       }
     };
 
-    // Googleログイン処理（OAuth 2.0）
+    // Google OAuth 2.0 ログイン処理
     document.getElementById('login-btn').onclick = () => {
-      // 本来はここでGoogleの認証画面へ飛ぶ
-      alert("※実際にYouTubeの登録チャンネルを取得するには、Googleの無料『Client ID』の設定が必要です。まずはアプリの画面表示テストをお試しください！");
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=${encodeURIComponent(SCOPE)}`;
+      window.location.href = authUrl;
     };
 
     // ログアウト処理
@@ -87,12 +96,87 @@
       document.getElementById('app-section').style.display = 'block';
     }
 
-    // 登録チャンネルの動画を取得してShortsを弾く処理
+    // 登録チャンネルの動画を取得してShorts（60秒以下の動画）を排除する処理
     async function loadSubscribedVideos(token) {
-      // YouTube APIを叩いて動画一覧を取得し、
-      // 動画の長さが「1分未満（Shorts）」のものを自動で排除（filter）して画面描画する処理をここに記述します
+      const videoListDiv = document.getElementById('video-list');
+      try {
+        // 1. 登録チャンネルの最新動画を取得
+        const res = await fetch('https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=10', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error.message);
+        }
+
+        if (!data.items || data.items.length === 0) {
+          videoListDiv.innerHTML = '登録チャンネルが見つかりませんでした。';
+          return;
+        }
+
+        // チャンネルID一覧を取得
+        const channelIds = data.items.map(item => item.snippet.resourceId.channelId);
+
+        // 各チャンネルの最新動画を取得
+        let allVideos = [];
+        for (const channelId of channelIds) {
+          const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=3`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const searchData = await searchRes.json();
+          if (searchData.items) {
+            allVideos.push(...searchData.items);
+          }
+        }
+
+        if (allVideos.length === 0) {
+          videoListDiv.innerHTML = '動画が見つかりませんでした。';
+          return;
+        }
+
+        // 動画詳細を取得して再生時間（Duration）を調べる
+        const videoIds = allVideos.map(v => v.id.videoId).join(',');
+        const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const detailsData = await detailsRes.json();
+
+        // 60秒超の通常動画のみ（Shorts除外）フィルタリング
+        const longVideos = detailsData.items.filter(video => {
+          const duration = video.contentDetails.duration; // ISO 8601形式（例: PT1M30S, PT45S）
+          return !isShorts(duration);
+        });
+
+        // 画面描画
+        videoListDiv.innerHTML = longVideos.map(video => `
+          <div class="video-card">
+            <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">
+              <img src="${video.snippet.thumbnails.medium.url}" alt="${video.snippet.title}">
+            </a>
+            <div class="video-info">
+              <div class="video-title">
+                <a href="https://www.youtube.com/watch?v=${video.id}" target="_blank">${video.snippet.title}</a>
+              </div>
+              <div class="channel-name">${video.snippet.channelTitle}</div>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (err) {
+        console.error(err);
+        videoListDiv.innerHTML = '動画の読み込みに失敗しました。再ログインをお試しください。';
+      }
+    }
+
+    // ISO 8601形式の動画時間を判定して60秒以下（Shorts）ならtrueを返す関数
+    function isShorts(duration) {
+      const match = duration.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
+      if (!match) return false;
+      const minutes = parseInt(match[1] || 0);
+      const seconds = parseInt(match[2] || 0);
+      return (minutes * 60 + seconds) <= 60;
     }
   </script>
 </body>
 </html>
-
