@@ -49,14 +49,12 @@
 </head>
 <body>
 
-  <!-- 1. 未ログイン状態の画面 -->
   <div id="login-section">
     <h1>My Clean YouTube</h1>
     <p>Shortsのない、登録チャンネル専用プレイヤーです。</p>
     <button id="login-btn">Googleで安全にログイン</button>
   </div>
 
-  <!-- 2. ログイン完了後の画面 -->
   <div id="app-section">
     <h1>新着動画（Shorts除外）</h1>
     <div id="video-list">読み込み中...</div>
@@ -112,49 +110,29 @@
     async function loadSubscribedVideos(token) {
       const videoListDiv = document.getElementById('video-list');
       try {
-        // 1. 登録チャンネル一覧の取得
-        const res = await fetch('https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=10', {
+        // 1. 登録チャンネルのフィード（アクティビティ）を取得（わずか1クォータで取得可能）
+        const res = await fetch('https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&home=true&maxResults=20', {
           headers: { Authorization: `Bearer ${token}` }
         });
         const data = await res.json();
 
         if (data.error) {
-          showError('APIエラー[subscriptions]: ' + JSON.stringify(data.error, null, 2));
-          videoListDiv.innerHTML = '登録チャンネルの取得に失敗しました。';
+          showError('APIエラー[activities]: ' + JSON.stringify(data.error, null, 2));
+          videoListDiv.innerHTML = 'アクティビティの取得に失敗しました。';
           return;
         }
 
-        if (!data.items || data.items.length === 0) {
-          videoListDiv.innerHTML = '登録チャンネルが見つかりませんでした。';
+        // 動画アップロードイベントのみ抽出
+        const videoItems = (data.items || []).filter(item => item.snippet?.type === 'upload' && item.contentDetails?.upload?.videoId);
+
+        if (videoItems.length === 0) {
+          videoListDiv.innerHTML = '新着動画が見つかりませんでした。';
           return;
         }
 
-        const channelIds = data.items.map(item => item.snippet.resourceId.channelId);
+        const videoIds = videoItems.map(item => item.contentDetails.upload.videoId).join(',');
 
-        // 2. 各チャンネルの動画を取得
-        let allVideos = [];
-        for (const channelId of channelIds) {
-          const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=3`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const searchData = await searchRes.json();
-          if (searchData.error) {
-            showError('APIエラー[search]: ' + JSON.stringify(searchData.error, null, 2));
-            videoListDiv.innerHTML = '動画検索APIでエラーが発生しました。';
-            return;
-          }
-          if (searchData.items) {
-            allVideos.push(...searchData.items);
-          }
-        }
-
-        if (allVideos.length === 0) {
-          videoListDiv.innerHTML = '動画が見つかりませんでした。';
-          return;
-        }
-
-        // 3. 動画詳細（長さ）を取得
-        const videoIds = allVideos.map(v => v.id.videoId).join(',');
+        // 2. 動画の長さ（Shorts判定用）を取得（わずか1クォータ）
         const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -162,17 +140,18 @@
 
         if (detailsData.error) {
           showError('APIエラー[videos]: ' + JSON.stringify(detailsData.error, null, 2));
-          videoListDiv.innerHTML = '動画詳細APIでエラーが発生しました。';
+          videoListDiv.innerHTML = '動画詳細の取得に失敗しました。';
           return;
         }
 
-        const longVideos = detailsData.items.filter(video => {
+        // Shorts（60秒以下）を除外
+        const longVideos = (detailsData.items || []).filter(video => {
           const duration = video.contentDetails?.duration;
           return duration && !isShorts(duration);
         });
 
         if (longVideos.length === 0) {
-          videoListDiv.innerHTML = '表示できる通常動画がありません。';
+          videoListDiv.innerHTML = '表示できる通常動画（Shorts以外）がありません。';
           return;
         }
 
